@@ -12,10 +12,11 @@ client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
-embeddings = HuggingFaceEmbeddings(model_name="shibing624/text2vec-base-chinese")
+
 
 def init_rag_db(file_paths):
-
+    embeddings = HuggingFaceEmbeddings(model_name="shibing624/text2vec-base-chinese")
+    
     all_chunks = []
     for file_path in file_paths:
         if not os.path.exists(file_path):
