@@ -6,3 +6,5 @@ langchain-community
 langchain-chroma
 sentence-transformers
 pypdf
+llama-parse
+nest-asyncio
