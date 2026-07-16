@@ -1,16 +1,28 @@
 import warnings
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_core.document import Document
+from llama_prase import LlamaParse
+import nest_asyncio
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 warnings.filterwarnings("ignore")
 
-def process_file(file_path):
+nest_asyncio.apply()
+
+async def process_file(file_path):
     print(f"[工具] 正在加载并清洗文件: {file_path} ...")
 
     try:
        if file_path.endswith('.pdf'):
-            loader = PyPDFLoader(file_path)
+            print("🚀 正在调用 LlamaParse 视觉大模型解析 PDF，请稍候...")
+            parser = LlamaParse(
+                 result_type="markdown",
+                 language="zh"
+            )
+            llama_docs = parser.load_data(file_path)
+            pages = []
+            for doc in llama_docs:
+                 pages.append(Document(page_content=doc.metadata))
        elif file_path.endswith('.txt'):
             # 【关键修改】LangChain 的 TextLoader 在遇到编码错误时会抛出 RuntimeError 而不是 UnicodeDecodeError
             try:
@@ -24,10 +36,6 @@ def process_file(file_path):
        else:
             print("❌ 不支持的文件格式")  
             return []
-            
-       # 对于 PDF，正常调用 load
-       if not file_path.endswith('.txt'):
-           pages = loader.load()
        
     except Exception as e:
         print(f"❌ 加载失败，请检查文件是否存在。错误信息：{e}")
