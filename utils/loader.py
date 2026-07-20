@@ -1,57 +1,59 @@
-import warnings
-from langchain_core.document import Document
-from llama_prase import LlamaParse
-import nest_asyncio
-from langchain_community.document_loaders import TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import os
+import subprocess
+from langchain_core.documents import Document
 
-warnings.filterwarnings("ignore")
+def process_file(file_path, progress_callback=None):
+    # 处理 TXT 文件的逻辑保持不变
+    if file_path.endswith('.txt'):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        return [Document(page_content=text, metadata={"source": file_path})]
 
-nest_asyncio.apply()
-
-async def process_file(file_path):
-    print(f"[工具] 正在加载并清洗文件: {file_path} ...")
-
-    try:
-       if file_path.endswith('.pdf'):
-            print("🚀 正在调用 LlamaParse 视觉大模型解析 PDF，请稍候...")
-            parser = LlamaParse(
-                 result_type="markdown",
-                 language="zh"
+    # 处理 PDF 文件的逻辑 (MinerU 本地解析版)
+    elif file_path.endswith('.pdf'):
+        # 1. 准备解析结果的存放路径
+        pdf_name = os.path.splitext(os.path.basename(file_path))[0]
+        output_dir = "output"
+        
+        # 2. 拼接并在本地运行 MinerU 命令
+        print(f"🚀 开始使用 MinerU 本地解析 {pdf_name}.pdf ... (可能需要几十秒到几分钟)")
+        cmd = ["magic-pdf", "-p", file_path, "-o", output_dir, "-m", "auto"]
+        
+        try:
+            # 这一步会启动一个完全独立的进程进行运算，并实时捕获输出日志
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace'
             )
-            llama_docs = parser.load_data(file_path)
-            pages = []
-            for doc in llama_docs:
-                 pages.append(Document(page_content=doc.metadata))
-       elif file_path.endswith('.txt'):
-            # 【关键修改】LangChain 的 TextLoader 在遇到编码错误时会抛出 RuntimeError 而不是 UnicodeDecodeError
-            try:
-                loader = TextLoader(file_path, encoding='utf-8')
-                pages = loader.load()
-            except Exception as inner_e:
-                # 只要 UTF-8 读取失败，我们就尝试用 GBK 兜底
-                print("⚠️ UTF-8 解码失败，尝试使用 GBK 编码读取...")
-                loader = TextLoader(file_path, encoding='gbk')
-                pages = loader.load()
-       else:
-            print("❌ 不支持的文件格式")  
+            
+            # 逐行读取终端输出，并通过回调函数传给前端
+            for line in process.stdout:
+                print(line, end="")  # 保持终端打印
+                if progress_callback:
+                    progress_callback(line)
+                    
+            process.wait()
+            
+            if process.returncode != 0:
+                print(f"❌ MinerU 解析 PDF 失败，退出码：{process.returncode}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ 运行解析进程时出错: {e}")
             return []
-       
-    except Exception as e:
-        print(f"❌ 加载失败，请检查文件是否存在。错误信息：{e}")
-        return[]
-    
-    for page in pages:
-            text = page.page_content
-            text = text.replace("\n\n","<段落>")
-            text = text.replace("\n","")
-            text = text.replace("<段落>","\n\n")
-            page.page_content = text
-
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size = 500,
-        chunk_overlap = 50,
-        separators = ["\n\n", "\n", " ", ""]
-    )
-    chunks = text_splitter.split_documents(pages)
-    return chunks
+            
+        # 3. 读取生成的 Markdown 文件
+        md_file = os.path.join(output_dir, pdf_name, "auto", f"{pdf_name}.md")
+        
+        if os.path.exists(md_file):
+            with open(md_file, "r", encoding="utf-8") as f:
+                md_content = f.read()
+            print("✅ MinerU 解析成功！已提取出结构化 Markdown")
+            return [Document(page_content=md_content, metadata={"source": file_path})]
+        else:
+            print("❌ 未能找到生成的 Markdown 文件")
+            return []
